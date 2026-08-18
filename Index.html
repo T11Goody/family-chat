@@ -53,8 +53,7 @@
             toName = document.getElementById('to-name').value.trim();
             if(!myName || !toName) return alert('Заполните оба поля!');
 
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${window.location.host}`);
+            ws = new WebSocket('wss://goody-family-chat.onrender.com');
 
             ws.onopen = () => {
                 ws.send(JSON.stringify({ type: 'AUTH', username: myName }));
