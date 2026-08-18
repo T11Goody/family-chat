@@ -1,4 +1,4 @@
-const express = require('express');
+express = require('express');
 const { WebSocketServer } = require('ws');
 const path = require('path');
 const fs = require('fs');
