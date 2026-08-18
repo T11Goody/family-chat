@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Семейный Чат</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: Arial, sans-serif; }
+        body { background: #e5ddd5; display: flex; flex-direction: column; height: 100vh; }
+        #auth-screen { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; background: #fff; padding: 20px; }
+        #auth-screen input, #auth-screen button { width: 100%; max-width: 300px; padding: 12px; margin: 8px 0; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
+        #auth-screen button { background: #075e54; color: white; border: none; font-weight: bold; cursor: pointer; }
+        #chat-screen { display: none; flex-direction: column; height: 100vh; }
+        header { background: #075e54; color: white; padding: 15px; font-size: 18px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        #messages { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .msg { max-width: 75%; padding: 10px; border-radius: 8px; font-size: 15px; line-height: 1.4; word-wrap: break-word; }
+        .msg.in { background: white; align-self: flex-start; }
+        .msg.out { background: #dcf8c6; align-self: flex-end; }
+        .msg img { max-width: 100%; border-radius: 4px; margin-top: 5px; display: block; }
+        .msg-info { font-size: 11px; color: #777; margin-bottom: 3px; font-weight: bold; }
+        footer { background: #f0f0f0; padding: 10px; display: flex; align-items: center; gap: 10px; }
+        footer input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ccc; border-radius: 20px; font-size: 16px; outline: none; }
+        footer button, footer label { background: #075e54; color: white; width: 44px; height: 44px; border-radius: 50%; border: none; display: flex; justify-content: center; align-items: center; font-size: 20px; cursor: pointer; }
+        footer input[type="file"] { display: none; }
+    </style>
+</head>
+<body>
+    <div id="auth-screen">
+        <h2>Семейный Чат</h2>
+        <input type="text" id="my-name" placeholder="Ваше имя (Папа, Мама...)">
+        <input type="text" id="to-name" placeholder="Кому писать ЛС?">
+        <button onclick="startChat()">Войти в чат</button>
+    </div>
+    <div id="chat-screen">
+        <header>
+            <span id="chat-title">Чат</span>
+            <button onclick="location.reload()" style="background:none; border:none; font-size:14px; color:#fff; width:auto; height:auto;">Выход</button>
+        </header>
+        <div id="messages"></div>
+        <footer>
+            <label for="file-input">+</label>
+            <input type="file" id="file-input" accept="image/*" onchange="sendPhoto(this)">
+            <input type="text" id="msg-input" placeholder="Сообщение..." onkeypress="if(event.key==='Enter') sendText()">
+            <button onclick="sendText()">➔</button>
+        </footer>
+    </div>
+    <script>
+        let ws;
+        let myName, toName;
+
+        function startChat() {
+            myName = document.getElementById('my-name').value.trim();
+            toName = document.getElementById('to-name').value.trim();
+            if(!myName || !toName) return alert('Заполните оба поля!');
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}`);
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ type: 'AUTH', username: myName }));
+                ws.send(JSON.stringify({ type: 'GET_HISTORY', from: myName, to: toName }));
+                document.getElementById('auth-screen').style.display = 'none';
+                document.getElementById('chat-screen').style.display = 'flex';
+                document.getElementById('chat-title').innerText = `ЛС с ${toName}`;
+            };
+
+            ws.onmessage = (event) => {
+                const packet = JSON.parse(event.data);
+                if (packet.type === 'HISTORY') {
+                    document.getElementById('messages').innerHTML = '';
+                    packet.data.forEach(msg => {
+                        const side = msg.sender === myName ? 'out' : 'in';
+                        const isImg = msg.type === 'IMG';
+                        appendMessage(msg.sender === myName ? 'Вы' : msg.sender, msg.content, side, isImg);
+                    });
+                } else if (packet.type === 'MSG') {
+                    appendMessage(packet.from, packet.content, 'in', false);
+                } else if (packet.type === 'IMG') {
+                    appendMessage(packet.from, packet.content, 'in', true);
+                }
+            };
+            ws.onclose = () => { alert('Соединение потеряно!'); location.reload(); };
+        }
+
+        function appendMessage(sender, content, side, isImg) {
+            const box = document.getElementById('messages');
+            const el = document.createElement('div');
+            el.className = `msg ${side}`;
+            let html = `<div class="msg-info">${sender}</div>`;
+            if(isImg) {
+                let base64Data = Array.isArray(content) ? content.join(',') : content;
+                if (!base64Data.startsWith('data:image')) { base64Data = `data:image/jpeg;base64,${base64Data}`; }
+                html += `<img src="${base64Data}">`;
+            } else { html += `<div>${content}</div>`; }
+            el.innerHTML = html;
+            box.appendChild(el);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function sendText() {
+            const input = document.getElementById('msg-input');
+            const text = input.value.trim();
+            if(!text) return;
+            ws.send(JSON.stringify({ type: 'MSG', from: myName, to: toName, content: text }));
+            appendMessage('Вы', text, 'out', false);
+            input.value = '';
+        }
+
+        function sendPhoto(input) {
+            const file = input.files;
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const base64 = e.target.result.split(',');
+                ws.send(JSON.stringify({ type: 'IMG', from: myName, to: toName, content: base64 }));
+                appendMessage('Вы', base64, 'out', true);
+            };
+            reader.readAsDataURL(file);
+        }
+    </script>
+</body>
+</html>
